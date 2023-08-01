@@ -1,16 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
-	"strings"
 
 	"github.com/NikhilSharmaWe/go-cache/cache"
 )
 
 type ServerOpts struct {
 	ListenAddr string
+	LeaderAddr string
 	IsLeader   bool
 }
 
@@ -35,7 +36,7 @@ func (s *Server) Start() error {
 	log.Printf("server starting on port [%s]\n", s.ListenAddr)
 
 	for {
-		conn, err := ln.Accept()
+		conn, err := ln.Accept() // this is server side conn
 		if err != nil {
 			log.Printf("accept error: %s\n", err)
 			continue
@@ -58,21 +59,52 @@ func (s *Server) handleConn(conn net.Conn) {
 			break
 		}
 
-		msg := buf[:n]
-		fmt.Println(string(msg))
+		go s.handleCommand(conn, buf[:n])
 	}
 }
 
 func (s *Server) handleCommand(conn net.Conn, rawCmd []byte) {
-	var (
-		rawStr = string(rawCmd)
-		parts  = strings.Split(rawStr, " ")
-	)
-
-	if len(parts) == 0 {
-		// respond
-		log.Println("invalid command")
+	msg, err := parseMessage(rawCmd)
+	if err != nil {
+		// respond back to connection
+		fmt.Println("failed to parse command", err)
 		return
 	}
-	// cmd := parts[0]
+
+	fmt.Printf("recieved command %s\n", msg.Cmd)
+	switch msg.Cmd {
+	case CMDSet:
+		err = s.handleSetCommand(conn, msg)
+
+	case CMDGet:
+		err = s.handleGetCommand(conn, msg)
+	}
+
+	if err != nil {
+		conn.Write([]byte(err.Error()))
+	}
+}
+
+func (s *Server) handleGetCommand(conn net.Conn, msg *Message) error {
+	val, err := s.cache.Get(msg.Key)
+	if err != nil {
+		return err
+	}
+
+	_, err = conn.Write(val)
+	return err
+}
+
+func (s *Server) handleSetCommand(conn net.Conn, msg *Message) error {
+	if err := s.cache.Set(msg.Key, msg.Value, msg.TTL); err != nil {
+		return err
+	}
+
+	go s.sendToFollowers(context.TODO(), msg)
+
+	return nil
+}
+
+func (s *Server) sendToFollowers(ctx context.Context, msg *Message) error {
+	return nil
 }
