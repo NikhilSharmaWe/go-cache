@@ -1,4 +1,4 @@
-package main
+package proto
 
 import (
 	"bytes"
@@ -9,8 +9,12 @@ import (
 
 // REASON WE ARE USING THIS APPROACH IS BECAUSE FOR ENCODING AND DECODING
 // STRUCT INTO []BYTE THIS IS THE BEST APPROACH
+// BECAUSE WHEN WE CONVERT THE STRUCT INTO []BYTE THEN HOW CAN WE
+// ACCESS INDIVIDUAL FIELDS, THROUGH BINARY.READ WE GET THE VALUES
+// ADDED TO THE BUFFER IN SEQUENCE IT WAD ADDED.
 
-// and we need to do that because tcp conn works with data in []byte
+// ** and we need to do that because tcp conn works with data in []byte, the read
+// and write functions work in []byte typed data **
 
 //ALSO THIS TEACH USE HOW PROTOBUF AND MESSAGEPACKER ARE WORKING IN THE BACKEND
 
@@ -65,17 +69,20 @@ func (c *CommandGet) Bytes() []byte {
 // has not been read, when we first read the reader in this case through the
 // reader made from the []byte returned from the c.Bytes() function, it first
 // returns the CmdSet value written, then keyLen and so on.
-func ParseCommand(r io.Reader) any {
+func ParseCommand(r io.Reader) (any, error) {
 	var cmd Command
-	binary.Read(r, binary.LittleEndian, &cmd)
+	err := binary.Read(r, binary.LittleEndian, &cmd)
+	if err != nil {
+		return nil, err
+	}
 
 	switch cmd {
 	case CmdSet:
-		return parseSetCommand(r)
+		return parseSetCommand(r), nil
 	case CmdGet:
-		return parseGetCommand(r)
+		return parseGetCommand(r), nil
 	default:
-		panic("invalid command")
+		return nil, fmt.Errorf("invalid command")
 	}
 }
 
