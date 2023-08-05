@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -24,25 +25,47 @@ func main() {
 	}
 
 	go func() {
-		time.Sleep(time.Second * 2)
-		c, err := client.New(":3000", client.Options{})
-		if err != nil {
-			log.Fatal(err)
+		time.Sleep(time.Second * 10)
+		if opts.IsLeader {
+			SendStuff()
 		}
-		for i := 0; i < 10; i++ {
-			SendCommand(c)
-		}
-		c.Close()
-		time.Sleep(time.Second * 1)
 	}()
 
 	server := NewServer(opts, cache.New())
 	server.Start()
 }
 
-func SendCommand(c *client.Client) {
-	_, err := c.Set(context.Background(), []byte("foo"), []byte("bar"), 2)
-	if err != nil {
-		log.Fatal(err)
+func SendStuff() {
+	for i := 0; i < 100; i++ {
+		go func(i int) {
+			c, err := client.New(":3000", client.Options{})
+			if err != nil {
+				log.Fatal(err)
+			}
+			var (
+				key   = fmt.Sprintf("key_%d", i)
+				value = fmt.Sprintf("val_%d", i)
+			)
+
+			err = c.Set(context.Background(), []byte(key), []byte(value), 0)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fetchedValue, err := c.Get(context.Background(), []byte(key))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Println(string(fetchedValue))
+
+			time.Sleep(time.Second)
+		}(i)
 	}
 }
+
+// func randomBytes(n int) []byte {
+// 	buf := make([]byte, n)
+// 	io.ReadFull(rand.Reader, buf)
+// 	return buf
+// }

@@ -7,16 +7,32 @@ import (
 	"io"
 )
 
-// REASON WE ARE USING THIS APPROACH IS BECAUSE FOR ENCODING AND DECODING
-// STRUCT INTO []BYTE THIS IS THE BEST APPROACH
-// BECAUSE WHEN WE CONVERT THE STRUCT INTO []BYTE THEN HOW CAN WE
-// ACCESS INDIVIDUAL FIELDS, THROUGH BINARY.READ WE GET THE VALUES
-// ADDED TO THE BUFFER IN SEQUENCE IT WAD ADDED.
-
-// ** and we need to do that because tcp conn works with data in []byte, the read
-// and write functions work in []byte typed data **
+//We are using encoding/binary because it is much faster than encoding/json
+//and here our focus is more on speed.
 
 //ALSO THIS TEACH USE HOW PROTOBUF AND MESSAGEPACKER ARE WORKING IN THE BACKEND
+
+type Status byte
+
+func (s Status) String() string {
+	switch s {
+	case StatusError:
+		return "ERR"
+	case StatussOK:
+		return "OK"
+	case StatusKeyNotFound:
+		return "KEYNOTFOUND"
+	default:
+		return "NONE"
+	}
+}
+
+const (
+	StatusNone Status = iota
+	StatussOK
+	StatusError
+	StatusKeyNotFound
+)
 
 type Command byte
 
@@ -25,7 +41,56 @@ const (
 	CmdSet
 	CmdGet
 	CmdDel
+	CmdJoin
 )
+
+type ResponseSet struct {
+	Status Status
+}
+
+func (r ResponseSet) Bytes() []byte {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, r.Status)
+
+	return buf.Bytes()
+}
+
+type ResponseGet struct {
+	Value  []byte
+	Status Status
+}
+
+func (r ResponseGet) Bytes() []byte {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, r.Status)
+
+	keyLen := int32(len(r.Value))
+	binary.Write(buf, binary.LittleEndian, keyLen)
+	binary.Write(buf, binary.LittleEndian, r.Value)
+
+	return buf.Bytes()
+}
+
+func ParseSetResponse(r io.Reader) (*ResponseSet, error) {
+	resp := &ResponseSet{}
+	err := binary.Read(r, binary.LittleEndian, &resp.Status)
+	return resp, err
+}
+
+func ParseGetResponse(r io.Reader) (*ResponseGet, error) {
+	resp := &ResponseGet{}
+	binary.Read(r, binary.LittleEndian, &resp.Status)
+
+	var valLen int32
+	binary.Read(r, binary.LittleEndian, &valLen)
+
+	resp.Value = make([]byte, valLen)
+	binary.Read(r, binary.LittleEndian, &resp.Value)
+
+	return resp, nil
+}
+
+type CommandJoin struct{}
 
 type CommandSet struct {
 	Key   []byte
@@ -81,6 +146,8 @@ func ParseCommand(r io.Reader) (any, error) {
 		return parseSetCommand(r), nil
 	case CmdGet:
 		return parseGetCommand(r), nil
+	case CmdJoin:
+		return parseJoinCommand(r), nil
 	default:
 		return nil, fmt.Errorf("invalid command")
 	}
@@ -110,10 +177,13 @@ func parseGetCommand(r io.Reader) *CommandGet {
 	cmd := &CommandGet{}
 	var keyLen int32
 	binary.Read(r, binary.LittleEndian, &keyLen)
-	fmt.Println(keyLen)
 
 	cmd.Key = make([]byte, keyLen)
 	binary.Read(r, binary.LittleEndian, &cmd.Key)
 
 	return cmd
+}
+
+func parseJoinCommand(r io.Reader) *CommandJoin {
+	return &CommandJoin{}
 }
