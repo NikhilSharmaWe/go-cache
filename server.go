@@ -12,6 +12,7 @@ import (
 	"github.com/NikhilSharmaWe/go-cache/cache"
 	"github.com/NikhilSharmaWe/go-cache/client"
 	"github.com/NikhilSharmaWe/go-cache/proto"
+	"go.uber.org/zap"
 )
 
 type ServerOpts struct {
@@ -24,13 +25,17 @@ type Server struct {
 	ServerOpts
 	members map[*client.Client]struct{} // deleting from a map is much easier than from a slice
 	cache   cache.Cacher
+	logger  *zap.SugaredLogger
 }
 
 func NewServer(opts ServerOpts, c cache.Cacher) *Server {
+	l, _ := zap.NewProduction()
+	lsugar := l.Sugar()
 	return &Server{
 		ServerOpts: opts,
 		members:    make(map[*client.Client]struct{}),
 		cache:      c,
+		logger:     lsugar,
 	}
 }
 
@@ -48,7 +53,7 @@ func (s *Server) Start() error {
 		}()
 	}
 
-	log.Printf("server starting on port [%s]\n", s.ListenAddr)
+	s.logger.Infow("server starting", "addr", s.ListenAddr, "leader", s.IsLeader)
 
 	for {
 		conn, err := ln.Accept()
@@ -66,7 +71,7 @@ func (s *Server) dialLeader() error {
 		return fmt.Errorf("failed to dial leader [%s]", s.LeaderAddr)
 	}
 
-	log.Println("connected to leader:", s.LeaderAddr)
+	s.logger.Infow("connected to leader:", "addr", s.LeaderAddr)
 
 	binary.Write(conn, binary.LittleEndian, proto.CmdJoin)
 
@@ -143,6 +148,14 @@ func (s *Server) handleSetCommand(conn net.Conn, cmd *proto.CommandSet) error {
 
 func (s *Server) handleGetCommand(conn net.Conn, cmd *proto.CommandGet) error {
 	resp := proto.ResponseGet{}
+	// go func() {
+	// 	for member := range s.members {
+	// 		_, err := member.Get(context.Background(), cmd.Key)
+	// 		if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 	}
+	// }()
 	val, err := s.cache.Get(cmd.Key)
 	if err != nil {
 		resp.Status = proto.StatusKeyNotFound
